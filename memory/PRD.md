@@ -51,10 +51,15 @@ User choices (2026-10-13):
 - Backend: /api/ping, /api/progress POST + GET.
 - Tests: iteration_1.json — all 12 scenarios passed (3 backend + 9 frontend).
 
+## Iteration 2 (2026-10-13)
+- Visual overhaul: Hanken Grotesk (Swiss grotesk) + JetBrains Mono, squared 14px tiles, liquid-glass surfaces (backdrop blur + specular sheen), ambient coral/honey colour field, grid canvas.
+- Weekly Recap screen: 7-day bar chart, MB freed, cleared, best streak, top trophy; Share button renders 1080x1350 PNG (Web Share API, download fallback).
+- Native Sync: backend merges snapshots (max counters, union trophies, per-day history), tracks platforms; 6-char pair codes (/api/pair, 10-min, single use). Web Settings: sync now, auto-sync toggle, link code, enter code. Expo app: lib/sync.ts + Settings "Sync with web" card (needs EXPO_PUBLIC_SYNC_URL, set in artifacts/clearspace-photos/.env).
+- Per-day history + unlockedAt + bestStreak tracked in state.
+- Tests: iteration_2.json — backend 5/5, frontend 10/10.
+
 ## Backlog (P1/P2)
 - P1: Daily reminder / notification cadence (service-worker push).
 - P1: Dark-mode toggle (dark tokens for the warm palette).
-- P1: Share card ("I reclaimed 1.2 GB with Clearspace").
 - P2: Weekly recap screen with sparkline of MB freed per day.
-- P2: Sync between Expo native app and web (device_id already supported).
 - P2: Family / household leaderboard (opt-in).
