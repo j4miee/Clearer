@@ -1,0 +1,40 @@
+{
+  "summary": "First-finish smoke test of Clearspace PWA (backend + frontend). Backend /api/ping and /api/progress GET+POST all return 200 with correct schema. Frontend home, review permission panel, sample loader, swipe actions (keep/remove/favorite), progress label (0/12 -> 3/12 -> 2/12 after undo), undo button, delete-drawer with Reclaim MB label, achievements grid tiles, and settings screen with reset button all work and have correct data-testids. Trophy toast 'achievement-toast-first-clear' fires as expected. One blocker: after clicking confirm-remove-btn in the delete drawer, the app does NOT return to the Home screen as the spec requires — it stays on the Review screen (DOM still shows '1 / 12' and the swipe card). This blocks verification of stat-freed/stat-cleared increments and XP progress bar growth on Home from a review session.",
+  "tested_scope": ["frontend", "backend", "integration"],
+  "passed": [
+    "GET /api/ping -> 200 {ok:true, service:'clearspace'}",
+    "POST /api/progress -> 200 {ok:true, updated_at:...}",
+    "GET /api/progress/test-device-1 -> 200 returns saved snapshot (freed_bytes:123, cleared_count:1)",
+    "Home screen renders brand 'clearspace', start-review-btn, open-settings-btn, open-achievements-btn, stat-freed, stat-cleared, stat-favorites",
+    "start-review-btn navigates to Review permission panel (allow-photo-access-btn + try-sample-btn visible)",
+    "try-sample-btn loads 12 sample photos, swipe-card-active + review-progress-bar + review-progress-label='0 / 12' render",
+    "btn-remove, btn-keep, btn-favorite advance stack; progress label goes 0 -> 3 / 12 after 3 actions",
+    "undo-btn is enabled after decisions and decrements label (3 -> 2 / 12)",
+    "review-queue-btn opens delete-drawer with confirm-remove-btn labelled 'Reclaim 1.2 MB'",
+    "achievement-toast-first-clear toast appears after confirming removal",
+    "open-achievements-btn navigates to achievement-grid with achievement-tile-* items",
+    "open-settings-btn navigates to Settings and reset-progress-btn is visible"
+  ],
+  "failed": [
+    {
+      "area": "Review / DeleteDrawer navigation",
+      "issue": "Clicking confirm-remove-btn clears the queue and shows the trophy toast, but the app does not navigate back to the Home screen. Review screen remains mounted (body text still shows 'ON-DEVICE REVIEW', 'Similar moments', '1 / 12' and sample-2.jpg card). start-review-btn is not visible after 5+ seconds. Per review request step 6 this should 'return to home screen'.",
+      "evidence": "After confirm, is_visible('[data-testid=\"start-review-btn\"]')=False; page.body.innerText contains '1 / 12 ... sample-2.jpg ... Undo ... Add photos'. Mobile preview frame also renders visually blank in both screenshots taken 4s and 9s post-confirm, suggesting a rendering/stacking issue tied to the drawer close transition.",
+      "priority": "HIGH"
+    },
+    {
+      "area": "Home stats verification (blocked)",
+      "issue": "Could not verify stat-freed / stat-cleared / stat-favorites increment on Home or xp-progress-bar width > 4% because the app never returned to Home after confirm-remove-btn.",
+      "evidence": "Dependent on blocker above.",
+      "priority": "MEDIUM"
+    }
+  ],
+  "action_items": [
+    "Fix DeleteDrawer / Review flow so that after confirm-remove-btn fires: queue is applied, haptic triggers, drawer closes, and the app navigates (setScreen/navigate) back to the Home screen. Check the handler in /app/frontend/src/components/DeleteDrawer.js and the parent in /app/frontend/src/App.js — the navigation callback may be missing or awaiting a state that never resolves.",
+    "After fixing navigation, re-run the Home-return assertions: stat-freed should show the reclaimed MB, stat-cleared should be >= 1, and xp-progress-bar inner width / parent width should be > 4%.",
+    "Investigate the blank-render in mobile frame post-confirm — DOM is populated but screenshot is empty, possibly a z-index/opacity transition that doesn't finalize."
+  ],
+  "success_rate": {"backend": "100%", "frontend": "~85%"},
+  "retest_needed": true,
+  "full_testing_deferred": true
+}
