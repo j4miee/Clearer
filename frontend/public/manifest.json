@@ -1,0 +1,17 @@
+{
+  "name": "Clearspace Photos",
+  "short_name": "Clearspace",
+  "description": "A calmer camera roll. Swipe. Save space. Celebrate.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F6F3ED",
+  "theme_color": "#F6F3ED",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='48' fill='%2319272B'/%3E%3Ccircle cx='96' cy='96' r='36' fill='none' stroke='%23F0C85B' stroke-width='10'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ]
+}

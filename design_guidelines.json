@@ -1,0 +1,110 @@
+{
+  "theme": "Light theme matching iOS minimal aesthetic",
+  "typography": {
+    "headings": {
+      "family": "Spectral, serif",
+      "weights": ["400", "500", "600"],
+      "usage": "H1/H2 for an elegant, high-end, under-used serif look."
+    },
+    "body": {
+      "family": "Manrope, sans-serif",
+      "weights": ["400", "500", "700"],
+      "usage": "Clean, highly readable geometric sans for app UI, settings, labels, and metrics."
+    },
+    "guidelines": [
+      "Headlines MUST use tracking-tight or tracking-tighter.",
+      "Never use Inter, Space Grotesk, or Roboto.",
+      "Small labels MUST be uppercase + wide spacing (tracking-[0.2em]).",
+      "Use fluid scaling up to text-5xl maximum for largest headers, keeping typography restrained for mobile."
+    ]
+  },
+  "colors": {
+    "background": "#F6F3ED",
+    "foreground": "#19272B",
+    "primary": "#C95F3E",
+    "accent": "#F0C85B",
+    "secondary": "#E4EDE5",
+    "surface": "#FFFFFF",
+    "card_overlay": "bg-black/30",
+    "guidelines": [
+      "Use Coral (#C95F3E) strictly for Delete/Destructive left swipes and primary call-to-actions.",
+      "Use Soft Sage (#E4EDE5) for Keep/Success right swipes and subtle tag backgrounds.",
+      "Use Honey (#F0C85B) for Favorite/Up swipes and achievement badges.",
+      "Surface backgrounds like cards or drawers should be pristine white (#FFFFFF) to stand out against the Warm Cream (#F6F3ED) background.",
+      "DO NOT use complete transparent backgrounds in headers, overlays, or any surface that has content under it."
+    ]
+  },
+  "layouts": {
+    "structure": "Mobile-first PWA. Root container must have max-w-[440px] mx-auto, h-screen, centered on desktop inside a neutral canvas (e.g., bg-stone-100 or bg-[#ebe7df] outside the mobile frame).",
+    "spacing": "Generous spacing. p-6 or p-8 inside cards, large touch targets (min 48x48px).",
+    "components": {
+      "swipe_stack": "Absolute positioned deck of cards taking up the majority of the view height. Drag constraints and visual feedback on swipe thresholds.",
+      "bottom_actions": "Fixed at the bottom of the mobile frame with three tactile pill-shaped or circular buttons (Delete, Favorite, Keep) mapping to swipe actions.",
+      "drawers": "Use framer-motion or a customized Shadcn Drawer for the confirm-before-delete queue.",
+      "achievements": "Grid layout for badges (Space Saver, Streak, Burst Buster, etc.) using Soft Sage or Honey accents and soft shadows."
+    }
+  },
+  "motion": {
+    "swipe_cards": "Framer Motion drag='x,y'. Use dragElastic and dragConstraints. Rotate cards based on drag X offset (e.g., transform: rotate(dragX * 0.1)). Fade out smoothly on swipe completion.",
+    "haptic_feedback": "Use navigator.vibrate([50]) when a drag threshold is passed to simulate haptic feedback (or fallback gracefully if unsupported).",
+    "page_transitions": "Subtle fade and slide for entering settings, drawer toggles, or achievement screens."
+  },
+  "components": {
+    "ui_libraries": "framer-motion for swiping and micro-interactions. lucide-react for iconography.",
+    "customization": "Use pill tags, soft diffuse ambient shadows (shadow-[0_8px_30px_rgb(0,0,0,0.08)]), and heavily rounded corners (rounded-3xl for cards) mirroring premium iOS style.",
+    "testing": "All interactive elements MUST have data-testid attributes."
+  },
+  "image_urls": [
+    {
+      "url": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwxfHxhZXN0aGV0aWMlMjBwb3J0cmFpdCUyMHBob3RvZ3JhcGh5fGVufDB8fHx8MTc5MTgzMzE2M3ww&ixlib=rb-4.1.0&q=85",
+      "description": "Aesthetic portrait - Sample photo for swipe stack",
+      "category": "sample_photo"
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1554147090-e1221a04a025?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MDZ8MHwxfHNlYXJjaHw0fHxtaW5pbWFsaXN0JTIwbGFuZHNjYXBlJTIwcGhvdG9ncmFwaHl8ZW58MHx8fHwxNzkxODMzMTYzfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Minimalist landscape - Sample photo for swipe stack",
+      "category": "sample_photo"
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1519501025264-65ba15a82390?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwyfHxjaXR5JTIwc3RyZWV0JTIwcGhvdG9ncmFwaHl8ZW58MHx8fHwxNzkxODMzMTYzfDA&ixlib=rb-4.1.0&q=85",
+      "description": "City street - Sample photo for swipe stack",
+      "category": "sample_photo"
+    }
+  ],
+  "accessibility": {
+    "contrast": "Ensure text contrast meets APCA/WCAG standards. Do not use fully transparent overlays where text sits.",
+    "interactions": "Provide on-screen fallback buttons for swiping (left/up/right) for users unable to perform drag gestures.",
+    "testing": "Include data-testid='...' on all interactive components (buttons, swipe cards, settings toggles) for robust automated testing."
+  },
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. In frontend design, this creates what users call the 'AI slop' aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) where necessary, but keep it crystal clear and purposeful.",
+    "You MUST NOT apply universal transition. Eg: transition: all. Always add transitions for specific interactive elements excluding transforms.",
+    "You MUST NOT center align the app container text via global CSS.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER use AI assistant Emoji characters like \ud83e\udd16\ud83e\udde0\ud83d\udcad\ud83d\udca1\udd2e\ud83c\udfaf etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Main agent relies on provided image URLs. NEVER use placeholder text for images.",
+    "Use .js/.jsx extensions for React components, NOT .tsx.",
+    "All interactive elements MUST include data-testid.",
+    "No HTML default elements for complex inputs (use Shadcn components for selects, dialogs, etc)."
+  ],
+  "instructions_to_main_agent": {
+    "setup": "Create the app structure using a mobile-first frame (max-w-[440px]) centered horizontally and vertically on desktop. Implement a permission-gated simulated photo library picker to act as device photo access.",
+    "features": [
+      "Swipeable Cards: Implement with Framer Motion. Left = Delete (Coral), Right = Keep (Sage), Up = Favorite (Honey). Integrate simulated haptic feedback on threshold cross.",
+      "Undo Feature: Temporarily store swiped cards in a state stack and provide an 'Undo' button to reverse the last swipe action.",
+      "Burst Grouping: Visually indicate photos grouped by timestamp/dimensions (e.g., a stacked card effect behind the main card).",
+      "Storage Tracker: Progress bar showing MB/GB saved with gamified level progression.",
+      "Delete Queue: A drawer sliding from the bottom, presenting the left-swiped photos to confirm deletion.",
+      "Achievements: Render a dedicated modal/screen for badges ('First Clear', 'Clean Sweep', 'Space Saver 100MB', 'Streak 3', etc.).",
+      "Settings Screen: A minimalist screen focusing on the 'nothing leaves your phone' privacy messaging."
+    ],
+    "styling": "Enforce the Warm Cream & Coral clean minimal palette strictly. Use fluid animations and ensure all cards and buttons feel highly tactile. Apply Spectral for headings to contrast beautifully against Manrope for body text."
+  }
+}
