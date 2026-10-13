@@ -92,9 +92,8 @@ export async function loadSamplePhotos() {
     // Simulate realistic photo sizes between 1.2MB and 5.4MB
     size: 1_200_000 + ((i * 377) % 4_200_000),
     width: 1600,
-    height: i % 3 === 0 ? 1200 : 2000,
-    // Space out in small bursts to force grouping
-    creationTime: now - (i % 3) * 20_000 - Math.floor(i / 3) * 86_400_000,
+    height: 2000,
+    creationTime: now - (i % 4) * 20_000 - Math.floor(i / 4) * 86_400_000,
     source: 'sample',
     favorite: false,
   }));

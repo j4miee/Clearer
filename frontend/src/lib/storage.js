@@ -16,7 +16,15 @@ const DEFAULT_STATE = {
   unlocked: [],
   pendingRemovals: [], // [{id, bytes}]
   favorites: [], // ids
-  pastDecisions: [], // for undo across sessions (not required but useful)
+  pastDecisions: [],
+  bestStreak: 0,
+  history: {},
+  unlockedAt: {},
+  burstSetsCompleted: 0,
+  perfectKept: 0,
+  autoSync: false,
+  linkedPlatforms: [],
+  lastSyncISO: null,
 };
 
 export function loadState() {

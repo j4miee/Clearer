@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { usePhotoLibrary } from '@/context/PhotoLibraryContext';
@@ -100,6 +100,9 @@ export default function SettingsScreen() {
           </Pressable>
         ) : null}
 
+        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>SYNC WITH WEB</Text>
+        <SyncCard colors={colors} />
+
         <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>ABOUT</Text>
         <View style={[styles.aboutCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.aboutTitle, { color: colors.foreground }]}>Clearspace</Text>
@@ -109,6 +112,61 @@ export default function SettingsScreen() {
           <Text style={[styles.version, { color: colors.mutedForeground }]}>Version 1.0</Text>
         </View>
       </ScrollView>
+    </View>
+  );
+}
+
+function SyncCard({ colors }: { colors: ReturnType<typeof useColors> }) {
+  const { deviceId, lastSync, syncNow, getLinkCode, linkWithCode } = usePhotoLibrary();
+  const [code, setCode] = useState('');
+  const [myCode, setMyCode] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const run = (fn: () => Promise<string | void>) => async () => {
+    setBusy(true);
+    setMessage('');
+    try {
+      const result = await fn();
+      if (typeof result === 'string') setMessage(result);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Sync failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={[styles.aboutCard, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 23 }]}>
+      <Text style={[styles.settingTitle, { color: colors.foreground }]}>Share progress with Clearspace web</Text>
+      <Text style={[styles.settingDetail, { color: colors.mutedForeground }]} numberOfLines={1}>
+        ID {deviceId ?? '…'}
+        {lastSync ? ` · ${lastSync.platforms.join(' + ')}` : ''}
+      </Text>
+      <View style={styles.syncRow}>
+        <Pressable testID="native-sync-now" disabled={busy} onPress={run(async () => { await syncNow(); return 'Progress synced.'; })}
+          style={[styles.syncButton, { backgroundColor: colors.foreground }]}>
+          <Text style={[styles.syncButtonText, { color: colors.card }]}>{busy ? 'Working…' : 'Sync now'}</Text>
+        </Pressable>
+        <Pressable testID="native-get-code" disabled={busy} onPress={run(async () => { setMyCode(await getLinkCode()); })}
+          style={[styles.syncButton, { borderColor: colors.border, borderWidth: 1 }]}>
+          <Text style={[styles.syncButtonText, { color: colors.foreground }]}>Link code</Text>
+        </Pressable>
+      </View>
+      {myCode ? <Text style={[styles.syncCode, { color: colors.foreground }]}>{myCode}</Text> : null}
+      <View style={styles.syncRow}>
+        <TextInput
+          testID="native-code-input" value={code} onChangeText={(t) => setCode(t.toUpperCase())}
+          maxLength={6} autoCapitalize="characters" placeholder="ENTER CODE" placeholderTextColor={colors.mutedForeground}
+          style={[styles.syncInput, { borderColor: colors.border, color: colors.foreground }]}
+        />
+        <Pressable testID="native-link" disabled={busy || code.length !== 6}
+          onPress={run(async () => { await linkWithCode(code); setCode(''); return 'Linked with web.'; })}
+          style={[styles.syncButton, { backgroundColor: colors.primary, opacity: code.length === 6 ? 1 : 0.5 }]}>
+          <Text style={[styles.syncButtonText, { color: colors.primaryForeground }]}>Link</Text>
+        </Pressable>
+      </View>
+      {message ? <Text style={[styles.settingDetail, { color: colors.mutedForeground }]}>{message}</Text> : null}
     </View>
   );
 }
@@ -167,4 +225,9 @@ const styles = StyleSheet.create({
   aboutTitle: { fontSize: 17, fontFamily: 'Inter_600SemiBold' },
   aboutBody: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 5 },
   version: { fontSize: 10, fontFamily: 'Inter_400Regular', marginTop: 18 },
+  syncRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  syncButton: { flex: 1, minHeight: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  syncButtonText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  syncInput: { flex: 2, minHeight: 42, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, letterSpacing: 4, fontFamily: 'Inter_600SemiBold' },
+  syncCode: { fontSize: 26, letterSpacing: 8, fontFamily: 'Inter_700Bold', marginTop: 12 },
 });

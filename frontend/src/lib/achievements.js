@@ -4,7 +4,7 @@
 export const ACHIEVEMENTS = [
   // Space milestones
   { id: 'first-clear',    tier: 'bronze', title: 'First Clear',     detail: 'Remove your first photo.',             icon: 'Sparkles',    goal: { kind: 'cleared', value: 1 },           xp: 20 },
-  { id: 'clean-sweep',    tier: 'bronze', title: 'Clean Sweep',     detail: 'Clear 25 photos in total.',             icon: 'Broom',       goal: { kind: 'cleared', value: 25 },          xp: 40 },
+  { id: 'clean-sweep',    tier: 'bronze', title: 'Clean Sweep',     detail: 'Clear 25 photos in total.',             icon: 'Brush',       goal: { kind: 'cleared', value: 25 },          xp: 40 },
   { id: 'power-sweeper',  tier: 'silver', title: 'Power Sweeper',   detail: 'Clear 100 photos in total.',            icon: 'Wand2',       goal: { kind: 'cleared', value: 100 },         xp: 80 },
   { id: 'minimalist',     tier: 'gold',   title: 'Minimalist',      detail: 'Clear 500 photos. Breathe out.',        icon: 'Leaf',        goal: { kind: 'cleared', value: 500 },         xp: 180 },
 

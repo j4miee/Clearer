@@ -1,14 +1,26 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import HomeScreen from './screens/Home';
 import ReviewScreen from './screens/Review';
 import AchievementsScreen from './screens/Achievements';
 import SettingsScreen from './screens/Settings';
+import RecapScreen from './screens/Recap';
 import DeleteDrawer from './components/DeleteDrawer';
 import AchievementToast from './components/AchievementToast';
 import { loadState, saveState, resetState } from './lib/storage';
 import { ACHIEVEMENTS, evaluateUnlocks } from './lib/achievements';
+import { bumpHistory } from './lib/recap';
+import { syncProgress, fromSnapshot } from './lib/sync';
 import { haptic } from './lib/photos';
+
+const statsOf = (s) => ({
+  cleared: s.clearedCount,
+  bytes: s.freedBytes,
+  streak: s.streakDays,
+  favorites: s.favoriteCount,
+  burstSetsCompleted: s.burstSetsCompleted || 0,
+  perfectKept: s.perfectKept || 0,
+});
 
 export default function App() {
   const [screen, setScreen] = useState('home');
@@ -16,132 +28,117 @@ export default function App() {
   const [session, setSession] = useState({ photos: [], groups: [] });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [toasts, setToasts] = useState([]);
-  const toastTimer = useRef(null);
+  const [syncStatus, setSyncStatus] = useState('idle');
+  const seenUnlocked = useRef(new Set(state.unlocked));
 
-  // Persist whenever state changes
   useEffect(() => { saveState(state); }, [state]);
 
-  const stats = useMemo(() => ({
-    cleared: state.clearedCount,
-    bytes: state.freedBytes,
-    streak: state.streakDays,
-    favorites: state.favoriteCount,
-    burstSetsCompleted: state.burstSetsCompleted || 0,
-    perfectKept: state.perfectKept || 0,
-  }), [state]);
-
-  const pushToast = useCallback((achievement) => {
-    setToasts((t) => [...t, { id: `${achievement.id}-${Date.now()}`, achievement }]);
+  useEffect(() => {
+    const fresh = state.unlocked.filter((id) => !seenUnlocked.current.has(id));
+    if (!fresh.length) return;
+    fresh.forEach((id) => seenUnlocked.current.add(id));
     haptic([30, 40, 30]);
-    clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => {
-      setToasts((t) => t.slice(1));
-    }, 3200);
+    fresh.forEach((id, i) => {
+      const achievement = ACHIEVEMENTS.find((a) => a.id === id);
+      if (!achievement) return;
+      const key = `${id}-${Date.now()}`;
+      setToasts((t) => [...t, { id: key, achievement }]);
+      setTimeout(() => setToasts((t) => t.filter((x) => x.id !== key)), 3200 + i * 400);
+    });
+  }, [state.unlocked]);
+
+  const award = useCallback((next) => {
+    const { newly, unlocked } = evaluateUnlocks(statsOf(next), next.unlocked);
+    if (!newly.length) return { ...next, unlocked };
+    const now = new Date().toISOString();
+    const unlockedAt = { ...(next.unlockedAt || {}) };
+    newly.forEach((a) => { unlockedAt[a.id] = now; });
+    return { ...next, unlocked, unlockedAt, xp: next.xp + newly.reduce((s, a) => s + a.xp, 0) };
   }, []);
 
-  const applyStatsAndAward = useCallback((nextState) => {
-    const nextStats = {
-      cleared: nextState.clearedCount,
-      bytes: nextState.freedBytes,
-      streak: nextState.streakDays,
-      favorites: nextState.favoriteCount,
-      burstSetsCompleted: nextState.burstSetsCompleted || 0,
-      perfectKept: nextState.perfectKept || 0,
-    };
-    const { newly, unlocked } = evaluateUnlocks(nextStats, nextState.unlocked);
-    if (newly.length) {
-      const bonusXp = newly.reduce((s, a) => s + (a.xp || 0), 0);
-      newly.forEach((a) => pushToast(a));
-      return { ...nextState, unlocked, xp: nextState.xp + bonusXp };
+  const runSync = useCallback(async (override) => {
+    setSyncStatus('syncing');
+    try {
+      const merged = await syncProgress(override || state);
+      setState((s) => fromSnapshot(override ? { ...s, ...override } : s, merged));
+      setSyncStatus('ok');
+      return merged;
+    } catch (e) {
+      setSyncStatus('error');
+      throw e;
     }
-    return { ...nextState, unlocked };
-  }, [pushToast]);
+  }, [state]);
 
-  // Update streak when photos are first loaded for a session
+  // Debounced auto-sync after progress changes
+  const syncKey = `${state.freedBytes}|${state.clearedCount}|${state.keptCount}|${state.favoriteCount}|${state.xp}|${state.unlocked.length}`;
+  const runSyncRef = useRef(runSync);
+  runSyncRef.current = runSync;
+  useEffect(() => {
+    if (!state.autoSync) return;
+    const t = setTimeout(() => { runSyncRef.current().catch(() => {}); }, 1500);
+    return () => clearTimeout(t);
+  }, [syncKey, state.autoSync]);
+
   const touchStreak = useCallback(() => {
     setState((s) => {
       const today = new Date();
       const todayISO = today.toISOString().slice(0, 10);
-      const last = s.lastReviewISO;
-      if (last === todayISO) return s;
-      let nextStreak = 1;
-      if (last) {
-        const prev = new Date(last + 'T00:00:00');
-        const diff = Math.round((today - prev) / 86_400_000);
-        nextStreak = diff === 1 ? s.streakDays + 1 : 1;
+      if (s.lastReviewISO === todayISO) return s;
+      let streak = 1;
+      if (s.lastReviewISO) {
+        const diff = Math.round((new Date(todayISO) - new Date(s.lastReviewISO)) / 86_400_000);
+        streak = diff === 1 ? s.streakDays + 1 : 1;
       }
-      const next = { ...s, lastReviewISO: todayISO, streakDays: nextStreak };
-      return applyStatsAndAward(next);
+      return award({ ...s, lastReviewISO: todayISO, streakDays: streak, bestStreak: Math.max(s.bestStreak || 0, streak) });
     });
-  }, [applyStatsAndAward]);
+  }, [award]);
 
-  const commitKeep = useCallback((photo) => {
-    setState((s) => {
-      const next = {
-        ...s,
-        keptCount: s.keptCount + 1,
-        xp: s.xp + 2,
-      };
-      return applyStatsAndAward(next);
-    });
-  }, [applyStatsAndAward]);
+  const commitKeep = useCallback(() => {
+    setState((s) => award({ ...s, keptCount: s.keptCount + 1, xp: s.xp + 2, history: bumpHistory(s.history, { kept: 1 }) }));
+  }, [award]);
 
   const commitRemove = useCallback((photo) => {
     setState((s) => {
-      const already = s.pendingRemovals.some((p) => p.id === photo.id);
-      const pendingRemovals = already
-        ? s.pendingRemovals
-        : [...s.pendingRemovals, { id: photo.id, bytes: photo.size || 0, name: photo.name, url: photo.url }];
-      const next = { ...s, pendingRemovals, xp: s.xp + 4 };
-      return applyStatsAndAward(next);
+      if (s.pendingRemovals.some((p) => p.id === photo.id)) return s;
+      const pendingRemovals = [...s.pendingRemovals, { id: photo.id, bytes: photo.size || 0, name: photo.name, url: photo.url }];
+      return award({ ...s, pendingRemovals, xp: s.xp + 4 });
     });
-  }, [applyStatsAndAward]);
+  }, [award]);
 
   const commitFavorite = useCallback((photo) => {
     setState((s) => {
       if (s.favorites.includes(photo.id)) return s;
-      const next = {
+      return award({
         ...s,
         favorites: [...s.favorites, photo.id],
         favoriteCount: s.favoriteCount + 1,
         xp: s.xp + 3,
-      };
-      return applyStatsAndAward(next);
+        history: bumpHistory(s.history, { favorites: 1 }),
+      });
     });
-    // Mark it in the session too so UI reflects immediately
-    setSession((ses) => ({
-      ...ses,
-      photos: ses.photos.map((p) => (p.id === photo.id ? { ...p, favorite: true } : p)),
+    setSession((ses) => ({ ...ses, photos: ses.photos.map((p) => (p.id === photo.id ? { ...p, favorite: true } : p)) }));
+  }, [award]);
+
+  const commitBurstCompleted = useCallback((perfect) => {
+    setState((s) => award({
+      ...s,
+      burstSetsCompleted: (s.burstSetsCompleted || 0) + 1,
+      perfectKept: (s.perfectKept || 0) + (perfect ? 1 : 0),
     }));
-  }, [applyStatsAndAward]);
+  }, [award]);
 
-  const commitBurstCompleted = useCallback((perfectlyKept) => {
+  const undoLast = useCallback((d) => {
+    if (!d) return;
     setState((s) => {
-      const next = {
+      if (d.type === 'remove') return { ...s, pendingRemovals: s.pendingRemovals.filter((p) => p.id !== d.photo.id), xp: Math.max(0, s.xp - 4) };
+      if (d.type === 'keep') return { ...s, keptCount: Math.max(0, s.keptCount - 1), xp: Math.max(0, s.xp - 2), history: bumpHistory(s.history, { kept: -1 }) };
+      return {
         ...s,
-        burstSetsCompleted: (s.burstSetsCompleted || 0) + 1,
-        perfectKept: (s.perfectKept || 0) + (perfectlyKept ? 1 : 0),
+        favorites: s.favorites.filter((id) => id !== d.photo.id),
+        favoriteCount: Math.max(0, s.favoriteCount - 1),
+        xp: Math.max(0, s.xp - 3),
+        history: bumpHistory(s.history, { favorites: -1 }),
       };
-      return applyStatsAndAward(next);
-    });
-  }, [applyStatsAndAward]);
-
-  const undoLast = useCallback((decision) => {
-    if (!decision) return;
-    setState((s) => {
-      let next = { ...s };
-      if (decision.type === 'remove') {
-        next.pendingRemovals = s.pendingRemovals.filter((p) => p.id !== decision.photo.id);
-        next.xp = Math.max(0, s.xp - 4);
-      } else if (decision.type === 'keep') {
-        next.keptCount = Math.max(0, s.keptCount - 1);
-        next.xp = Math.max(0, s.xp - 2);
-      } else if (decision.type === 'favorite') {
-        next.favorites = s.favorites.filter((id) => id !== decision.photo.id);
-        next.favoriteCount = Math.max(0, s.favoriteCount - 1);
-        next.xp = Math.max(0, s.xp - 3);
-      }
-      return next;
     });
   }, []);
 
@@ -149,103 +146,82 @@ export default function App() {
     setState((s) => {
       const bytes = s.pendingRemovals.reduce((t, p) => t + (p.bytes || 0), 0);
       const count = s.pendingRemovals.length;
-      const next = {
+      return award({
         ...s,
         freedBytes: s.freedBytes + bytes,
         clearedCount: s.clearedCount + count,
         pendingRemovals: [],
-        xp: s.xp + count * 2, // bonus for committing
-      };
-      return applyStatsAndAward(next);
+        xp: s.xp + count * 2,
+        history: bumpHistory(s.history, { bytes, cleared: count }),
+      });
     });
     haptic([60, 30, 60]);
     setDrawerOpen(false);
     setScreen('home');
-  }, [applyStatsAndAward]);
+  }, [award]);
 
-  const unqueue = useCallback((photoId) => {
-    setState((s) => ({ ...s, pendingRemovals: s.pendingRemovals.filter((p) => p.id !== photoId) }));
+  const unqueue = useCallback((id) => {
+    setState((s) => ({ ...s, pendingRemovals: s.pendingRemovals.filter((p) => p.id !== id) }));
   }, []);
 
   const resetAll = useCallback(() => {
-    const fresh = resetState();
-    setState(fresh);
+    setState(resetState());
+    seenUnlocked.current = new Set();
     setSession({ photos: [], groups: [] });
   }, []);
 
-  const screenEl = (() => {
-    switch (screen) {
-      case 'review':
-        return (
-          <ReviewScreen
-            state={state}
-            session={session}
-            setSession={setSession}
-            onKeep={commitKeep}
-            onRemove={commitRemove}
-            onFavorite={commitFavorite}
-            onUndo={undoLast}
-            onBurstCompleted={commitBurstCompleted}
-            onOpenDrawer={() => setDrawerOpen(true)}
-            onBack={() => setScreen('home')}
-            onLoadedPhotos={touchStreak}
-          />
-        );
-      case 'achievements':
-        return <AchievementsScreen state={state} onBack={() => setScreen('home')} />;
-      case 'settings':
-        return <SettingsScreen state={state} onBack={() => setScreen('home')} onReset={resetAll} />;
-      case 'home':
-      default:
-        return (
-          <HomeScreen
-            state={state}
-            onReview={() => setScreen('review')}
-            onAchievements={() => setScreen('achievements')}
-            onSettings={() => setScreen('settings')}
-            onOpenDrawer={() => setDrawerOpen(true)}
-          />
-        );
-    }
-  })();
+  const go = (s) => () => setScreen(s);
+
+  const screens = {
+    review: (
+      <ReviewScreen
+        state={state} session={session} setSession={setSession}
+        onKeep={commitKeep} onRemove={commitRemove} onFavorite={commitFavorite}
+        onUndo={undoLast} onBurstCompleted={commitBurstCompleted}
+        onOpenDrawer={() => setDrawerOpen(true)} onBack={go('home')} onLoadedPhotos={touchStreak}
+      />
+    ),
+    achievements: <AchievementsScreen state={state} onBack={go('home')} />,
+    recap: <RecapScreen state={state} onBack={go('home')} />,
+    settings: (
+      <SettingsScreen
+        state={state} setState={setState} onBack={go('home')} onReset={resetAll}
+        onSync={runSync} syncStatus={syncStatus}
+      />
+    ),
+    home: (
+      <HomeScreen
+        state={state} onReview={go('review')} onAchievements={go('achievements')}
+        onSettings={go('settings')} onRecap={go('recap')} onOpenDrawer={() => setDrawerOpen(true)}
+      />
+    ),
+  };
 
   return (
     <div className="min-h-screen w-full flex items-stretch sm:items-center justify-center canvas-grain">
-      <div className="relative w-full sm:w-[440px] min-h-screen sm:min-h-[860px] sm:my-6 sm:rounded-[36px] overflow-hidden bg-cream shadow-card">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={screen}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.28, ease: [0.2, 0.9, 0.2, 1] }}
-            className="relative"
-          >
-            {screenEl}
-          </motion.div>
-        </AnimatePresence>
+      <div className="relative w-full sm:w-[440px] min-h-screen sm:min-h-[880px] sm:my-6 sm:rounded-[44px] overflow-hidden bg-cream shadow-card sm:border sm:border-white/70">
+        <div className="ambient" />
+        <motion.div
+          key={screen}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, ease: [0.2, 0.9, 0.2, 1] }}
+          className="relative z-10"
+        >
+          {screens[screen] || screens.home}
+        </motion.div>
 
         <DeleteDrawer
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-          pending={state.pendingRemovals}
-          onUnqueue={unqueue}
-          onConfirm={confirmDelete}
+          open={drawerOpen} onClose={() => setDrawerOpen(false)}
+          pending={state.pendingRemovals} onUnqueue={unqueue} onConfirm={confirmDelete}
         />
 
         <div className="pointer-events-none fixed sm:absolute left-0 right-0 bottom-24 flex flex-col items-center gap-2 z-50">
           <AnimatePresence>
-            {toasts.map((t) => (
-              <AchievementToast key={t.id} achievement={t.achievement} />
-            ))}
+            {toasts.map((t) => <AchievementToast key={t.id} achievement={t.achievement} />)}
           </AnimatePresence>
         </div>
       </div>
     </div>
   );
-}
-
-// expose for debug/console
-if (typeof window !== 'undefined') {
-  window.__CLEARSPACE_ACHIEVEMENTS__ = ACHIEVEMENTS;
 }

@@ -3,18 +3,14 @@ import * as Icons from 'lucide-react';
 import { ACHIEVEMENTS, progressFor } from '../lib/achievements';
 import { formatBytes } from '../lib/storage';
 
-const TIER_STYLES = {
-  bronze: { ring: 'ring-coral/20', pill: 'bg-coral/10 text-coral', dot: 'bg-coral' },
-  silver: { ring: 'ring-sageDeep/20', pill: 'bg-sage text-sageDeep', dot: 'bg-sageDeep' },
-  gold:   { ring: 'ring-honeyDeep/30', pill: 'bg-honey/30 text-honeyDeep', dot: 'bg-honeyDeep' },
+const TIER = {
+  bronze: 'text-coralDeep bg-coral/10',
+  silver: 'text-sageDeep bg-sage',
+  gold: 'text-honeyDeep bg-honey/25',
 };
 
-function iconComponent(name) {
-  const Comp = Icons[name] || Icons.Trophy;
-  return Comp;
-}
-
-function describeGoal(a, state) {
+export default function AchievementsScreen({ state, onBack }) {
+  const unlockedSet = new Set(state.unlocked);
   const stats = {
     cleared: state.clearedCount,
     bytes: state.freedBytes,
@@ -23,75 +19,47 @@ function describeGoal(a, state) {
     burstSetsCompleted: state.burstSetsCompleted || 0,
     perfectKept: state.perfectKept || 0,
   };
-  const current = stats[a.goal.kind] ?? 0;
-  const goal = a.goal.value;
-  const fmt = (v) => a.goal.kind === 'bytes' ? formatBytes(v) : v;
-  return { current, goal, label: `${fmt(current)} / ${fmt(goal)}` };
-}
-
-export default function AchievementsScreen({ state, onBack }) {
-  const unlockedSet = new Set(state.unlocked);
-  const unlockedCount = state.unlocked.length;
 
   return (
-    <div className="min-h-screen w-full flex flex-col px-5 pt-8 pb-28 no-select">
+    <div className="min-h-screen w-full flex flex-col px-5 pt-8 pb-12 no-select">
       <header className="flex items-center justify-between">
-        <button
-          data-testid="achievements-back-btn"
-          onClick={onBack}
-          className="w-10 h-10 rounded-full border border-hairline bg-surface flex items-center justify-center t-colors active:bg-sage"
-          aria-label="Back"
-        >
-          <Icons.ArrowLeft size={17} className="text-ink" strokeWidth={1.6} />
+        <button data-testid="achievements-back-btn" onClick={onBack} aria-label="Back" className="glass w-10 h-10 rounded-[12px] flex items-center justify-center press">
+          <Icons.ArrowLeft size={17} strokeWidth={1.8} />
         </button>
-        <p className="serif text-ink text-[22px] tracking-tight">Trophies</p>
+        <p className="eyebrow text-muted">Trophy case</p>
         <span className="w-10" />
       </header>
 
-      <div className="mt-6 bg-ink text-cream rounded-[26px] p-5 flex items-center gap-4 shadow-card">
-        <div className="w-12 h-12 rounded-2xl bg-honey/20 border border-honey/30 flex items-center justify-center">
-          <Icons.Trophy size={20} className="text-honey" strokeWidth={1.6} />
-        </div>
-        <div className="flex-1">
-          <p className="serif text-[20px] tracking-tight">{unlockedCount} of {ACHIEVEMENTS.length} unlocked</p>
-          <p className="sans text-cream/70 text-[11px] mt-1">Chase bronze, silver and gold tiers.</p>
-        </div>
+      <div className="mt-8 flex items-end justify-between">
+        <h1 className="font-grotesk font-bold text-[72px] leading-[0.85] tracking-[-0.06em] tabular">
+          {String(state.unlocked.length).padStart(2, '0')}<span className="text-ink/20">/{ACHIEVEMENTS.length}</span>
+        </h1>
+        <p className="text-[10px] text-muted text-right leading-relaxed">BRONZE<br />SILVER<br />GOLD</p>
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-3" data-testid="achievement-grid">
-        {ACHIEVEMENTS.map((a) => {
-          const Icon = iconComponent(a.icon);
+        {ACHIEVEMENTS.map((a, idx) => {
+          const Icon = Icons[a.icon] || Icons.Trophy;
           const unlocked = unlockedSet.has(a.id);
-          const style = TIER_STYLES[a.tier];
-          const goal = describeGoal(a, state);
-          const pct = Math.round(progressFor(a, {
-            cleared: state.clearedCount,
-            bytes: state.freedBytes,
-            streak: state.streakDays,
-            favorites: state.favoriteCount,
-            burstSetsCompleted: state.burstSetsCompleted || 0,
-            perfectKept: state.perfectKept || 0,
-          }) * 100);
+          const pct = Math.round(progressFor(a, stats) * 100);
+          const current = stats[a.goal.kind] ?? 0;
+          const fmt = (v) => (a.goal.kind === 'bytes' ? formatBytes(v) : v);
           return (
-            <div
-              key={a.id}
-              data-testid={`achievement-tile-${a.id}`}
-              className={`rounded-2xl p-4 border ${unlocked ? 'bg-surface border-hairline shadow-soft' : 'bg-surface/60 border-hairline'} relative overflow-hidden`}
-            >
-              <div className={`w-11 h-11 rounded-xl flex items-center justify-center ring-4 ${style.ring} ${unlocked ? 'bg-ink text-honey' : 'bg-cream text-ink/40'}`}>
-                <Icon size={18} strokeWidth={1.6} />
-              </div>
-              <div className="mt-3 flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-                <span className={`eyebrow ${style.pill} px-2 py-0.5 rounded-full`}>{a.tier}</span>
-              </div>
-              <p className="serif text-ink text-[16px] mt-2 tracking-tight">{a.title}</p>
-              <p className="sans text-muted text-[11px] leading-[1.4] mt-1 min-h-[32px]">{a.detail}</p>
-              <div className="mt-3">
-                <div className="h-1.5 rounded-full bg-ink/5 overflow-hidden">
-                  <div className={`h-full ${unlocked ? 'bg-honeyDeep' : 'bg-ink/30'}`} style={{ width: `${pct}%` }} />
+            <div key={a.id} data-testid={`achievement-tile-${a.id}`} className={`rounded-tile p-4 ${unlocked ? 'glass-dark text-white sheen' : 'glass'}`}>
+              <div className="flex items-start justify-between">
+                <div className={`w-10 h-10 rounded-[10px] flex items-center justify-center ${unlocked ? 'bg-honey text-ink' : 'bg-ink/5 text-ink/35'}`}>
+                  <Icon size={17} strokeWidth={2} />
                 </div>
-                <p className="sans text-[10px] text-muted mt-1.5">{unlocked ? '✓ Unlocked' : goal.label}</p>
+                <span className="font-mono text-[9px] opacity-50 tabular">{String(idx + 1).padStart(2, '0')}</span>
+              </div>
+              <p className="font-grotesk font-bold text-[16px] mt-4 tracking-tight leading-tight">{a.title}</p>
+              <p className={`text-[10px] leading-snug mt-1 min-h-[28px] ${unlocked ? 'text-white/60' : 'text-muted'}`}>{a.detail}</p>
+              <div className={`mt-3 h-[4px] rounded-full overflow-hidden ${unlocked ? 'bg-white/15' : 'bg-ink/8 bg-ink/10'}`}>
+                <div className={`h-full ${unlocked ? 'bg-honey' : 'bg-ink/40'}`} style={{ width: `${pct}%` }} />
+              </div>
+              <div className="flex items-center justify-between mt-2">
+                <span className={`eyebrow !text-[8px] px-1.5 py-0.5 rounded-[4px] ${unlocked ? 'bg-white/10 text-honey' : TIER[a.tier]}`}>{a.tier}</span>
+                <span className={`text-[9px] tabular ${unlocked ? 'text-white/70' : 'text-muted'}`}>{unlocked ? 'UNLOCKED' : `${fmt(current)}/${fmt(a.goal.value)}`}</span>
               </div>
             </div>
           );

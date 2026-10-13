@@ -6,6 +6,15 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { Platform } from 'react-native';
+import {
+  createPairCode,
+  getDeviceId,
+  pushProgress,
+  redeemPairCode,
+  setDeviceId,
+  type SyncSnapshot,
+} from '@/lib/sync';
 
 type StoredState = {
   pendingRemovalIds: string[];
@@ -22,6 +31,11 @@ type PhotoLibraryContextValue = StoredState & {
   keepPhoto: (id: string) => void;
   recordDeleted: (ids: string[], bytes: number) => Promise<void>;
   setScanSummary: (photoCount: number, groupCount: number) => void;
+  deviceId: string | null;
+  lastSync: { at: string; platforms: string[] } | null;
+  syncNow: () => Promise<void>;
+  getLinkCode: () => Promise<string>;
+  linkWithCode: (code: string) => Promise<void>;
 };
 
 const STORAGE_KEY = 'clearspace-library-state-v2';
@@ -38,6 +52,8 @@ export function PhotoLibraryProvider({ children }: { children: React.ReactNode }
   const [ready, setReady] = useState(false);
   const [scannedPhotoCount, setScannedPhotoCount] = useState(0);
   const [similarGroupCount, setSimilarGroupCount] = useState(0);
+  const [deviceId, setDeviceIdState] = useState<string | null>(null);
+  const [lastSync, setLastSync] = useState<{ at: string; platforms: string[] } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -108,18 +124,60 @@ export function PhotoLibraryProvider({ children }: { children: React.ReactNode }
     setSimilarGroupCount(groupCount);
   };
 
+  useEffect(() => {
+    getDeviceId().then(setDeviceIdState).catch(() => undefined);
+  }, []);
+
+  const applyMerged = (merged: SyncSnapshot) => {
+    const next: StoredState = {
+      ...stored,
+      freedBytes: Math.max(stored.freedBytes, merged.freed_bytes),
+      clearedPhotoCount: Math.max(stored.clearedPhotoCount, merged.cleared_count),
+    };
+    persist(next);
+    setLastSync({ at: merged.updated_at ?? new Date().toISOString(), platforms: merged.platforms ?? [] });
+  };
+
+  const syncNow = async (overrideId?: string) => {
+    const id = overrideId ?? deviceId ?? (await getDeviceId());
+    const merged = await pushProgress(id, Platform.OS, {
+      freedBytes: stored.freedBytes,
+      clearedPhotoCount: stored.clearedPhotoCount,
+      keptCount: stored.keptIds.length,
+    });
+    applyMerged(merged);
+  };
+
+  const getLinkCode = async () => {
+    const id = deviceId ?? (await getDeviceId());
+    await syncNow(id);
+    return (await createPairCode(id)).code;
+  };
+
+  const linkWithCode = async (code: string) => {
+    const { device_id } = await redeemPairCode(code);
+    await setDeviceId(device_id);
+    setDeviceIdState(device_id);
+    await syncNow(device_id);
+  };
+
   const value = useMemo(
     () => ({
       ...stored,
       ready,
       scannedPhotoCount,
       similarGroupCount,
+      deviceId,
+      lastSync,
       markForRemoval,
       keepPhoto,
       recordDeleted,
       setScanSummary,
+      syncNow: () => syncNow(),
+      getLinkCode,
+      linkWithCode,
     }),
-    [stored, ready, scannedPhotoCount, similarGroupCount],
+    [stored, ready, scannedPhotoCount, similarGroupCount, deviceId, lastSync],
   );
 
   return <PhotoLibraryContext.Provider value={value}>{children}</PhotoLibraryContext.Provider>;
