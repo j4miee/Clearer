@@ -14,6 +14,14 @@ export async function queryPhotoPage(_offset: number, _limit: number): Promise<P
   return [];
 }
 
+export async function queryVideoPage(_offset: number, _limit: number): Promise<PhotoMetadata[]> {
+  return [];
+}
+
+export async function queryScreenshotPhotos(_limit = 240): Promise<PhotoMetadata[]> {
+  return [];
+}
+
 export async function getLocalPhotoFileSize(_id: string): Promise<number | null> {
   return null;
 }
@@ -23,5 +31,9 @@ export async function presentLimitedPhotoPicker() {
 }
 
 export async function deletePhotos(_ids: string[]) {
+  return;
+}
+
+export async function setPhotoFavorite(_id: string, _isFavorite: boolean) {
   return;
 }

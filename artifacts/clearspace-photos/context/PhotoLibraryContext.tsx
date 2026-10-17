@@ -6,21 +6,25 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { Platform } from 'react-native';
-import {
-  createPairCode,
-  getDeviceId,
-  pushProgress,
-  redeemPairCode,
-  setDeviceId,
-  type SyncSnapshot,
-} from '@/lib/sync';
 
 type StoredState = {
   pendingRemovalIds: string[];
   keptIds: string[];
   freedBytes: number;
   clearedPhotoCount: number;
+  xp: number;
+  streakDays: number;
+  bestStreak: number;
+  lastActivityDate: string | null;
+  dailyHistory: DailyProgress[];
+};
+
+export type DailyProgress = {
+  date: string;
+  freedBytes: number;
+  clearedCount: number;
+  keptCount: number;
+  reviewedCount: number;
 };
 
 type PhotoLibraryContextValue = StoredState & {
@@ -28,15 +32,19 @@ type PhotoLibraryContextValue = StoredState & {
   scannedPhotoCount: number;
   similarGroupCount: number;
   markForRemoval: (id: string) => void;
+  markSetForRemoval: (ids: string[]) => void;
+  restoreFromBin: (ids: string[]) => void;
   keepPhoto: (id: string) => void;
+  favoritePhoto: (id: string) => void;
+  restoreReviewState: (snapshot: ReviewStateSnapshot) => void;
   recordDeleted: (ids: string[], bytes: number) => Promise<void>;
   setScanSummary: (photoCount: number, groupCount: number) => void;
-  deviceId: string | null;
-  lastSync: { at: string; platforms: string[] } | null;
-  syncNow: () => Promise<void>;
-  getLinkCode: () => Promise<string>;
-  linkWithCode: (code: string) => Promise<void>;
 };
+
+export type ReviewStateSnapshot = Pick<
+  StoredState,
+  'pendingRemovalIds' | 'keptIds' | 'xp' | 'streakDays' | 'bestStreak' | 'lastActivityDate' | 'dailyHistory'
+>;
 
 const STORAGE_KEY = 'clearspace-library-state-v2';
 const EMPTY_STATE: StoredState = {
@@ -44,7 +52,40 @@ const EMPTY_STATE: StoredState = {
   keptIds: [],
   freedBytes: 0,
   clearedPhotoCount: 0,
+  xp: 0,
+  streakDays: 0,
+  bestStreak: 0,
+  lastActivityDate: null,
+  dailyHistory: [],
 };
+
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function nextStreak(lastDate: string | null, currentStreak: number, today: string) {
+  if (lastDate === today) return currentStreak;
+  const yesterday = new Date(`${today}T12:00:00`);
+  yesterday.setDate(yesterday.getDate() - 1);
+  return lastDate === localDateKey(yesterday) ? currentStreak + 1 : 1;
+}
+
+function updateDay(history: DailyProgress[], date: string, delta: Partial<Omit<DailyProgress, 'date'>>) {
+  const previous = history.find((day) => day.date === date);
+  const nextDay: DailyProgress = {
+    date,
+    freedBytes: (previous?.freedBytes ?? 0) + (delta.freedBytes ?? 0),
+    clearedCount: (previous?.clearedCount ?? 0) + (delta.clearedCount ?? 0),
+    keptCount: (previous?.keptCount ?? 0) + (delta.keptCount ?? 0),
+    reviewedCount: (previous?.reviewedCount ?? 0) + (delta.reviewedCount ?? 0),
+  };
+  return [...history.filter((day) => day.date !== date), nextDay]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-90);
+}
 const PhotoLibraryContext = createContext<PhotoLibraryContextValue | null>(null);
 
 export function PhotoLibraryProvider({ children }: { children: React.ReactNode }) {
@@ -52,8 +93,6 @@ export function PhotoLibraryProvider({ children }: { children: React.ReactNode }
   const [ready, setReady] = useState(false);
   const [scannedPhotoCount, setScannedPhotoCount] = useState(0);
   const [similarGroupCount, setSimilarGroupCount] = useState(0);
-  const [deviceId, setDeviceIdState] = useState<string | null>(null);
-  const [lastSync, setLastSync] = useState<{ at: string; platforms: string[] } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -67,6 +106,11 @@ export function PhotoLibraryProvider({ children }: { children: React.ReactNode }
             keptIds: parsed.keptIds ?? [],
             freedBytes: parsed.freedBytes ?? 0,
             clearedPhotoCount: parsed.clearedPhotoCount ?? 0,
+            xp: parsed.xp ?? 0,
+            streakDays: parsed.streakDays ?? 0,
+            bestStreak: parsed.bestStreak ?? 0,
+            lastActivityDate: parsed.lastActivityDate ?? null,
+            dailyHistory: parsed.dailyHistory ?? [],
           });
         } catch {
           // Start clean if a prior local state cannot be read.
@@ -87,8 +131,16 @@ export function PhotoLibraryProvider({ children }: { children: React.ReactNode }
   };
 
   const markForRemoval = (id: string) => {
+    if (stored.pendingRemovalIds.includes(id)) return;
+    const today = localDateKey();
+    const streakDays = nextStreak(stored.lastActivityDate, stored.streakDays, today);
     const next: StoredState = {
       ...stored,
+      xp: stored.xp + 4,
+      streakDays,
+      bestStreak: Math.max(stored.bestStreak, streakDays),
+      lastActivityDate: today,
+      dailyHistory: updateDay(stored.dailyHistory, today, { reviewedCount: 1 }),
       pendingRemovalIds: stored.pendingRemovalIds.includes(id)
         ? stored.pendingRemovalIds
         : [...stored.pendingRemovalIds, id],
@@ -97,19 +149,74 @@ export function PhotoLibraryProvider({ children }: { children: React.ReactNode }
     persist(next);
   };
 
+  const markSetForRemoval = (ids: string[]) => {
+    const newlyMarked = ids.filter((id) => !stored.pendingRemovalIds.includes(id));
+    if (newlyMarked.length === 0) return;
+    const today = localDateKey();
+    const streakDays = nextStreak(stored.lastActivityDate, stored.streakDays, today);
+    const marked = new Set(ids);
+    persist({
+      ...stored,
+      xp: stored.xp + newlyMarked.length * 4,
+      streakDays,
+      bestStreak: Math.max(stored.bestStreak, streakDays),
+      lastActivityDate: today,
+      dailyHistory: updateDay(stored.dailyHistory, today, { reviewedCount: newlyMarked.length }),
+      pendingRemovalIds: [...stored.pendingRemovalIds, ...newlyMarked],
+      keptIds: stored.keptIds.filter((id) => !marked.has(id)),
+    });
+  };
+
+  const restoreFromBin = (ids: string[]) => {
+    const restored = new Set(ids);
+    const pendingRemovalIds = stored.pendingRemovalIds.filter((id) => !restored.has(id));
+    if (pendingRemovalIds.length === stored.pendingRemovalIds.length) return;
+    persist({ ...stored, pendingRemovalIds });
+  };
+
   const keepPhoto = (id: string) => {
+    if (stored.keptIds.includes(id)) return;
+    const today = localDateKey();
+    const streakDays = nextStreak(stored.lastActivityDate, stored.streakDays, today);
     const next: StoredState = {
       ...stored,
+      xp: stored.xp + 2,
+      streakDays,
+      bestStreak: Math.max(stored.bestStreak, streakDays),
+      lastActivityDate: today,
+      dailyHistory: updateDay(stored.dailyHistory, today, { keptCount: 1, reviewedCount: 1 }),
       pendingRemovalIds: stored.pendingRemovalIds.filter((pendingId) => pendingId !== id),
       keptIds: stored.keptIds.includes(id) ? stored.keptIds : [...stored.keptIds, id],
     };
     persist(next);
   };
 
+  const favoritePhoto = (_id: string) => {
+    const today = localDateKey();
+    const streakDays = nextStreak(stored.lastActivityDate, stored.streakDays, today);
+    persist({
+      ...stored,
+      xp: stored.xp + 3,
+      streakDays,
+      bestStreak: Math.max(stored.bestStreak, streakDays),
+      lastActivityDate: today,
+      dailyHistory: updateDay(stored.dailyHistory, today, { reviewedCount: 1 }),
+    });
+  };
+
+  const restoreReviewState = (snapshot: ReviewStateSnapshot) => {
+    persist({ ...stored, ...snapshot });
+  };
+
   const recordDeleted = async (ids: string[], bytes: number) => {
     const deleted = new Set(ids);
     const next: StoredState = {
       ...stored,
+      xp: stored.xp + ids.length * 2,
+      dailyHistory: updateDay(stored.dailyHistory, localDateKey(), {
+        freedBytes: bytes,
+        clearedCount: ids.length,
+      }),
       pendingRemovalIds: stored.pendingRemovalIds.filter((id) => !deleted.has(id)),
       keptIds: stored.keptIds.filter((id) => !deleted.has(id)),
       freedBytes: stored.freedBytes + bytes,
@@ -124,60 +231,22 @@ export function PhotoLibraryProvider({ children }: { children: React.ReactNode }
     setSimilarGroupCount(groupCount);
   };
 
-  useEffect(() => {
-    getDeviceId().then(setDeviceIdState).catch(() => undefined);
-  }, []);
-
-  const applyMerged = (merged: SyncSnapshot) => {
-    const next: StoredState = {
-      ...stored,
-      freedBytes: Math.max(stored.freedBytes, merged.freed_bytes),
-      clearedPhotoCount: Math.max(stored.clearedPhotoCount, merged.cleared_count),
-    };
-    persist(next);
-    setLastSync({ at: merged.updated_at ?? new Date().toISOString(), platforms: merged.platforms ?? [] });
-  };
-
-  const syncNow = async (overrideId?: string) => {
-    const id = overrideId ?? deviceId ?? (await getDeviceId());
-    const merged = await pushProgress(id, Platform.OS, {
-      freedBytes: stored.freedBytes,
-      clearedPhotoCount: stored.clearedPhotoCount,
-      keptCount: stored.keptIds.length,
-    });
-    applyMerged(merged);
-  };
-
-  const getLinkCode = async () => {
-    const id = deviceId ?? (await getDeviceId());
-    await syncNow(id);
-    return (await createPairCode(id)).code;
-  };
-
-  const linkWithCode = async (code: string) => {
-    const { device_id } = await redeemPairCode(code);
-    await setDeviceId(device_id);
-    setDeviceIdState(device_id);
-    await syncNow(device_id);
-  };
-
   const value = useMemo(
     () => ({
       ...stored,
       ready,
       scannedPhotoCount,
       similarGroupCount,
-      deviceId,
-      lastSync,
       markForRemoval,
+      markSetForRemoval,
+      restoreFromBin,
       keepPhoto,
+      favoritePhoto,
+      restoreReviewState,
       recordDeleted,
       setScanSummary,
-      syncNow: () => syncNow(),
-      getLinkCode,
-      linkWithCode,
     }),
-    [stored, ready, scannedPhotoCount, similarGroupCount, deviceId, lastSync],
+    [stored, ready, scannedPhotoCount, similarGroupCount],
   );
 
   return <PhotoLibraryContext.Provider value={value}>{children}</PhotoLibraryContext.Provider>;

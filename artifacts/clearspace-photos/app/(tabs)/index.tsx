@@ -5,6 +5,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-n
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { usePhotoLibrary } from '@/context/PhotoLibraryContext';
+import { BrandBackdrop } from '@/components/BrandBackdrop';
 
 export default function HomeScreen() {
   const colors = useColors();
@@ -13,12 +14,29 @@ export default function HomeScreen() {
     scannedPhotoCount,
     similarGroupCount,
     pendingRemovalIds,
+    keptIds,
     freedBytes,
     clearedPhotoCount,
+    xp,
+    streakDays,
+    bestStreak,
+    dailyHistory,
   } = usePhotoLibrary();
+
+  const weeklyDays = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date();
+    day.setDate(day.getDate() - (6 - index));
+    const date = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+    const progress = dailyHistory.find((entry) => entry.date === date);
+    return { date, label: day.toLocaleDateString(undefined, { weekday: 'narrow' }), clearedCount: progress?.clearedCount ?? 0 };
+  });
+  const weeklyEntries = dailyHistory.filter((entry) => weeklyDays.some((day) => day.date === entry.date));
+  const weekCleared = weeklyEntries.reduce((sum, entry) => sum + entry.clearedCount, 0);
+  const weekFreed = weeklyEntries.reduce((sum, entry) => sum + entry.freedBytes, 0);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <BrandBackdrop />
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -28,10 +46,13 @@ export default function HomeScreen() {
       >
         <View style={styles.header}>
           <View style={styles.brand}>
-            <View style={[styles.brandMark, { backgroundColor: colors.foreground }]}>
-              <Feather name="aperture" size={17} color={colors.card} />
+            <View style={styles.brandMark}>
+              <View style={styles.brandGlyph} />
             </View>
-            <Text style={[styles.brandName, { color: colors.foreground }]}>clearspace</Text>
+            <View>
+              <Text style={[styles.brandName, { color: colors.foreground }]}>Clearspace</Text>
+              <Text style={[styles.brandCaption, { color: colors.mutedForeground }]}>V2.0 / ON-DEVICE</Text>
+            </View>
           </View>
           <Pressable
             testID="open-settings"
@@ -47,15 +68,15 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.hero}>
-          <View style={[styles.privacyPill, { backgroundColor: colors.secondary }]}>
-            <View style={[styles.privacyDot, { backgroundColor: colors.primary }]} />
-            <Text style={[styles.privacyText, { color: colors.secondaryForeground }]}>PRIVATE BY DEFAULT</Text>
+          <Text style={[styles.privacyText, { color: colors.mutedForeground }]}>[01] SPACE RECLAIMED</Text>
+          <View style={styles.metricRow}>
+            <Text style={[styles.headline, { color: colors.foreground }]}>
+              {freedBytes >= 1_000_000 ? (freedBytes / 1_000_000).toFixed(1) : Math.round(freedBytes / 1000)}
+            </Text>
+            <Text style={[styles.metricUnit, { color: colors.primary }]}>{freedBytes >= 1_000_000 ? 'MB' : 'KB'}</Text>
           </View>
-          <Text style={[styles.headline, { color: colors.foreground }]}>
-            Keep the moments.{'\n'}Clear the rest.
-          </Text>
           <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-            A calmer camera roll starts with one good choice.
+            Keep the moments. Clear the rest. {clearedPhotoCount} {clearedPhotoCount === 1 ? 'photo' : 'photos'} cleared to date.
           </Text>
         </View>
 
@@ -64,33 +85,130 @@ export default function HomeScreen() {
           onPress={() => router.push('/library')}
           style={({ pressed }) => [
             styles.reviewCard,
-            { backgroundColor: colors.foreground, transform: [{ scale: pressed ? 0.99 : 1 }] },
+            { backgroundColor: colors.primary, transform: [{ scale: pressed ? 0.99 : 1 }] },
           ]}
         >
           <View style={styles.reviewCardTop}>
-            <View style={[styles.reviewIcon, { backgroundColor: colors.accent }]}>
-              <Feather name="copy" size={18} color={colors.accentForeground} />
+            <View style={[styles.reviewIcon, { backgroundColor: 'rgba(255,255,255,0.16)' }]}>
+              <Feather name="copy" size={18} color={colors.primaryForeground} />
             </View>
-            <Feather name="arrow-up-right" size={18} color={colors.accent} />
+            <Feather name="arrow-up-right" size={18} color={colors.primaryForeground} />
           </View>
-          <Text style={[styles.reviewTitle, { color: colors.card }]}>Similar moments</Text>
-          <Text style={[styles.reviewDetail, { color: colors.muted }]}>
+          <Text style={[styles.reviewTitle, { color: colors.primaryForeground }]}>Start swiping</Text>
+          <Text style={[styles.reviewDetail, { color: 'rgba(255,255,255,0.82)' }]}>
             {scannedPhotoCount > 0
               ? `${similarGroupCount} sets found in ${scannedPhotoCount} scanned photos`
               : 'Find quick bursts and choose the version worth keeping'}
           </Text>
           <View style={styles.reviewCardBottom}>
-            <Text style={[styles.reviewAction, { color: colors.accent }]}>
+            <Text style={[styles.reviewAction, { color: colors.primaryForeground }]}>
               {scannedPhotoCount > 0 ? 'Continue review' : 'Scan on this device'}
             </Text>
-            <Feather name="arrow-right" size={15} color={colors.accent} />
+            <Feather name="arrow-right" size={15} color={colors.primaryForeground} />
           </View>
         </Pressable>
+
+        <View style={[styles.featureHeading, { marginTop: 25 }]}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>More ways to clear space</Text>
+          <Text style={[styles.sectionNote, { color: colors.mutedForeground }]}>ON DEVICE</Text>
+        </View>
+        <FeatureTile
+          testID="open-smart-picks"
+          icon="aperture"
+          eyebrow="GOOD MOMENTS, KEPT"
+          title="Smart picks"
+          detail="Compare similar shots, older screenshots and small images. You decide what stays."
+          action="See suggestions"
+          tint={colors.accent}
+          iconColor={colors.accentForeground}
+          colors={colors}
+          onPress={() => router.push('/smart-picks')}
+        />
+        <FeatureTile
+          testID="open-screenshot-sweep"
+          icon="image"
+          eyebrow="QUICK CLEANUP"
+          title="Screenshot sweep"
+          detail="Review screenshots in a focused grid. Keep useful ones or queue the rest for review."
+          action="Review screenshots"
+          tint={colors.secondary}
+          iconColor={colors.secondaryForeground}
+          colors={colors}
+          onPress={() => router.push('/screenshots')}
+        />
+        <FeatureTile
+          testID="open-video-review"
+          icon="film"
+          eyebrow="MAKE ROOM FOR NEW MEMORIES"
+          title="Review videos"
+          detail="Browse recent clips and mark the ones you no longer need. Nothing is deleted without your confirmation."
+          action="Browse videos"
+          tint={colors.accent}
+          iconColor={colors.accentForeground}
+          colors={colors}
+          onPress={() => router.push('/videos')}
+        />
+        <FeatureTile
+          testID="open-files-review"
+          icon="folder"
+          eyebrow="BEYOND YOUR CAMERA ROLL"
+          title="Review files"
+          detail="Sort through PDFs, tickets and other files you choose from the Files app."
+          action="Choose files"
+          tint={colors.secondary}
+          iconColor={colors.secondaryForeground}
+          colors={colors}
+          onPress={() => router.push('/files')}
+        />
+        <FeatureTile
+          testID="open-weekly-recap"
+          icon="bar-chart-2"
+          eyebrow="YOUR PROGRESS"
+          title="Weekly recap"
+          detail={`${weekCleared} photos cleared this week · ${weekFreed >= 1_000_000 ? `${(weekFreed / 1_000_000).toFixed(1)} MB` : `${Math.round(weekFreed / 1000)} KB`} reclaimed`}
+          action="See your recap"
+          tint={colors.accent}
+          iconColor={colors.accentForeground}
+          colors={colors}
+          onPress={() => router.push('/weekly-recap')}
+        />
 
         <View style={styles.sectionHeading}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Your library</Text>
           <Text style={[styles.sectionNote, { color: colors.mutedForeground }]}>LOCAL ONLY</Text>
         </View>
+        <View style={styles.statRow}>
+          <View style={[styles.statTile, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>[02] FREED</Text>
+            <Text style={[styles.statValue, { color: colors.foreground }]}>{freedBytes >= 1_000_000 ? `${(freedBytes / 1_000_000).toFixed(1)} MB` : `${Math.round(freedBytes / 1000)} KB`}</Text>
+          </View>
+          <View style={[styles.statTile, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>[03] CLEARED</Text>
+            <Text style={[styles.statValue, { color: colors.foreground }]}>{clearedPhotoCount}</Text>
+          </View>
+          <View style={[styles.statTile, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>[04] KEPT</Text>
+            <Text style={[styles.statValue, { color: colors.foreground }]}>{keptIds.length}</Text>
+          </View>
+        </View>
+
+        <View style={[styles.levelCard, { backgroundColor: colors.foreground }]}>
+          <View style={styles.levelTop}>
+            <View>
+              <Text style={[styles.levelEyebrow, { color: 'rgba(255,255,255,0.58)' }]}>LEVEL {String(Math.floor(xp / 100) + 1).padStart(2, '0')}</Text>
+              <Text style={[styles.levelValue, { color: colors.card }]}>{xp} <Text style={styles.xpUnit}>XP</Text></Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={[styles.levelEyebrow, { color: 'rgba(255,255,255,0.58)' }]}>STREAK</Text>
+              <Text style={[styles.streakValue, { color: colors.card }]}>{streakDays} days</Text>
+            </View>
+          </View>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${Math.max(3, xp % 100)}%` }]} />
+          </View>
+          <Text style={[styles.progressLabel, { color: 'rgba(255,255,255,0.58)' }]}>{xp % 100}/100 XP TO NEXT LEVEL · BEST STREAK {bestStreak}</Text>
+        </View>
+
         <View style={[styles.libraryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={[styles.libraryIcon, { backgroundColor: colors.secondary }]}>
             <Feather name="shield" size={17} color={colors.secondaryForeground} />
@@ -113,10 +231,10 @@ export default function HomeScreen() {
             <Feather name="trash-2" size={17} color={colors.destructive} />
             <View style={styles.queueCopy}>
               <Text style={[styles.queueTitle, { color: colors.foreground }]}>
-                {pendingRemovalIds.length} {pendingRemovalIds.length === 1 ? 'photo' : 'photos'} marked for removal
+                {pendingRemovalIds.length} {pendingRemovalIds.length === 1 ? 'photo' : 'photos'} in the Clearspace Bin
               </Text>
               <Text style={[styles.queueDetail, { color: colors.mutedForeground }]}>
-                Still in your library until you confirm
+                Not deleted yet · restore or review deletion
               </Text>
             </View>
             <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
@@ -150,31 +268,107 @@ export default function HomeScreen() {
   );
 }
 
+function FeatureTile({
+  testID,
+  icon,
+  eyebrow,
+  title,
+  detail,
+  action,
+  tint,
+  iconColor,
+  colors,
+  onPress,
+}: {
+  testID: string;
+  icon: keyof typeof Feather.glyphMap;
+  eyebrow: string;
+  title: string;
+  detail: string;
+  action: string;
+  tint: string;
+  iconColor: string;
+  colors: ReturnType<typeof useColors>;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [
+        styles.featureCard,
+        { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.82 : 1 },
+      ]}
+    >
+      <View>
+        <View style={styles.featureTop}>
+          <View style={[styles.featureIcon, { backgroundColor: tint }]}>
+            <Feather name={icon} size={18} color={iconColor} />
+          </View>
+          <Feather name="arrow-up-right" size={18} color={colors.foreground} />
+        </View>
+        <Text style={[styles.featureEyebrow, { color: colors.mutedForeground }]}>{eyebrow}</Text>
+        <Text style={[styles.featureTitle, { color: colors.foreground }]}>{title}</Text>
+        <Text style={[styles.featureDetail, { color: colors.mutedForeground }]}>{detail}</Text>
+      </View>
+      <View style={styles.featureBottom}>
+        <Text style={[styles.featureAction, { color: colors.primary }]}>{action}</Text>
+        <Feather name="arrow-right" size={13} color={colors.primary} />
+      </View>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { paddingHorizontal: 21 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  brandMark: { width: 31, height: 31, borderRadius: 11, justifyContent: 'center', alignItems: 'center' },
-  brandName: { fontSize: 17, letterSpacing: -0.7, fontFamily: 'Inter_600SemiBold' },
+  brandMark: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0E1314' },
+  brandGlyph: { width: 14, height: 14, borderRadius: 4, borderWidth: 2, borderColor: '#FF5A36' },
+  brandName: { fontSize: 19, letterSpacing: -0.7, fontFamily: 'Inter_700Bold' },
+  brandCaption: { fontSize: 8, letterSpacing: 1.15, fontFamily: 'Inter_500Medium', marginTop: 3 },
   settingsButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
-  hero: { marginTop: 32, marginBottom: 23 },
-  privacyPill: { flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start', borderRadius: 13, paddingHorizontal: 10, paddingVertical: 7 },
-  privacyDot: { width: 6, height: 6, borderRadius: 3 },
-  privacyText: { fontSize: 9, letterSpacing: 1.2, fontFamily: 'Inter_700Bold' },
-  headline: { fontSize: 36, lineHeight: 41, letterSpacing: -1.7, fontFamily: 'Inter_600SemiBold', marginTop: 16 },
-  subtitle: { fontSize: 13, lineHeight: 20, fontFamily: 'Inter_400Regular', marginTop: 9 },
-  reviewCard: { borderRadius: 22, padding: 18, minHeight: 196 },
+  hero: { marginTop: 34, marginBottom: 24 },
+  privacyText: { fontSize: 10, letterSpacing: 1.3, fontFamily: 'Inter_500Medium' },
+  metricRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 8 },
+  headline: { fontSize: 76, lineHeight: 82, letterSpacing: -4, fontFamily: 'Inter_700Bold' },
+  metricUnit: { fontSize: 26, fontFamily: 'Inter_600SemiBold', marginBottom: 8 },
+  subtitle: { fontSize: 12, lineHeight: 19, fontFamily: 'Inter_400Regular', marginTop: 7 },
+  reviewCard: { borderRadius: 14, padding: 18, minHeight: 155 },
   reviewCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   reviewIcon: { width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  reviewTitle: { fontSize: 19, letterSpacing: -0.5, fontFamily: 'Inter_600SemiBold', marginTop: 16 },
+  reviewTitle: { fontSize: 24, letterSpacing: -0.7, fontFamily: 'Inter_700Bold', marginTop: 16 },
   reviewDetail: { fontSize: 11, lineHeight: 16, fontFamily: 'Inter_400Regular', marginTop: 5, maxWidth: 245 },
   reviewCardBottom: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 17 },
   reviewAction: { fontSize: 11, fontFamily: 'Inter_700Bold' },
   sectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 29, marginBottom: 11 },
   sectionTitle: { fontSize: 16, letterSpacing: -0.3, fontFamily: 'Inter_600SemiBold' },
   sectionNote: { fontSize: 9, letterSpacing: 1.1, fontFamily: 'Inter_600SemiBold' },
-  libraryCard: { borderWidth: 1, borderRadius: 18, minHeight: 77, padding: 13, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  statRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  statTile: { flex: 1, minHeight: 76, borderWidth: 1, borderRadius: 10, padding: 10, justifyContent: 'space-between' },
+  statLabel: { fontSize: 8, letterSpacing: 0.8, fontFamily: 'Inter_500Medium' },
+  statValue: { fontSize: 15, letterSpacing: -0.5, fontFamily: 'Inter_700Bold' },
+  levelCard: { borderRadius: 14, padding: 16, marginBottom: 10 },
+  levelTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  levelEyebrow: { fontSize: 9, letterSpacing: 1.1, fontFamily: 'Inter_500Medium' },
+  levelValue: { fontSize: 34, lineHeight: 38, fontFamily: 'Inter_700Bold', marginTop: 3 },
+  xpUnit: { fontSize: 12, color: '#FF5A36' },
+  streakValue: { fontSize: 16, fontFamily: 'Inter_600SemiBold', marginTop: 8 },
+  progressTrack: { height: 6, borderRadius: 4, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.13)', marginTop: 12 },
+  progressFill: { height: '100%', borderRadius: 4, backgroundColor: '#FF5A36' },
+  progressLabel: { fontSize: 8, letterSpacing: 0.5, fontFamily: 'Inter_500Medium', marginTop: 7 },
+  featureHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
+  featureCard: { minHeight: 155, borderRadius: 15, borderWidth: 1, padding: 16, marginBottom: 11, justifyContent: 'space-between' },
+  featureTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  featureIcon: { width: 39, height: 39, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  featureEyebrow: { fontSize: 8, letterSpacing: 1, fontFamily: 'Inter_600SemiBold', marginTop: 12 },
+  featureTitle: { fontSize: 20, letterSpacing: -0.5, fontFamily: 'Inter_700Bold', marginTop: 3 },
+  featureDetail: { fontSize: 10, lineHeight: 15, fontFamily: 'Inter_400Regular', marginTop: 4, maxWidth: 290 },
+  featureBottom: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 10 },
+  featureAction: { fontSize: 10, fontFamily: 'Inter_700Bold' },
+  libraryCard: { borderWidth: 1, borderRadius: 14, minHeight: 77, padding: 13, flexDirection: 'row', alignItems: 'center', gap: 11 },
   libraryIcon: { width: 37, height: 37, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   libraryCopy: { flex: 1 },
   libraryTitle: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },

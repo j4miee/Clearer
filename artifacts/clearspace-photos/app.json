@@ -8,11 +8,17 @@
     "scheme": "clearspace-photos",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.j4mieee.clearspace-photos",
+      "deploymentTarget": "17.0"
     },
-    "android": {},
-    "web": {
-      "favicon": "./assets/images/icon.png"
+    "android": {
+      "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES"
+      ]
     },
     "plugins": [
       "expo-router",

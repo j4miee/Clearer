@@ -1,10 +1,11 @@
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React from 'react';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { usePhotoLibrary } from '@/context/PhotoLibraryContext';
+import { BrandBackdrop } from '@/components/BrandBackdrop';
 
 export default function SettingsScreen() {
   const colors = useColors();
@@ -13,6 +14,7 @@ export default function SettingsScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <BrandBackdrop />
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -100,9 +102,6 @@ export default function SettingsScreen() {
           </Pressable>
         ) : null}
 
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>SYNC WITH WEB</Text>
-        <SyncCard colors={colors} />
-
         <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>ABOUT</Text>
         <View style={[styles.aboutCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.aboutTitle, { color: colors.foreground }]}>Clearspace</Text>
@@ -112,61 +111,6 @@ export default function SettingsScreen() {
           <Text style={[styles.version, { color: colors.mutedForeground }]}>Version 1.0</Text>
         </View>
       </ScrollView>
-    </View>
-  );
-}
-
-function SyncCard({ colors }: { colors: ReturnType<typeof useColors> }) {
-  const { deviceId, lastSync, syncNow, getLinkCode, linkWithCode } = usePhotoLibrary();
-  const [code, setCode] = useState('');
-  const [myCode, setMyCode] = useState('');
-  const [message, setMessage] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const run = (fn: () => Promise<string | void>) => async () => {
-    setBusy(true);
-    setMessage('');
-    try {
-      const result = await fn();
-      if (typeof result === 'string') setMessage(result);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Sync failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <View style={[styles.aboutCard, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 23 }]}>
-      <Text style={[styles.settingTitle, { color: colors.foreground }]}>Share progress with Clearspace web</Text>
-      <Text style={[styles.settingDetail, { color: colors.mutedForeground }]} numberOfLines={1}>
-        ID {deviceId ?? '…'}
-        {lastSync ? ` · ${lastSync.platforms.join(' + ')}` : ''}
-      </Text>
-      <View style={styles.syncRow}>
-        <Pressable testID="native-sync-now" disabled={busy} onPress={run(async () => { await syncNow(); return 'Progress synced.'; })}
-          style={[styles.syncButton, { backgroundColor: colors.foreground }]}>
-          <Text style={[styles.syncButtonText, { color: colors.card }]}>{busy ? 'Working…' : 'Sync now'}</Text>
-        </Pressable>
-        <Pressable testID="native-get-code" disabled={busy} onPress={run(async () => { setMyCode(await getLinkCode()); })}
-          style={[styles.syncButton, { borderColor: colors.border, borderWidth: 1 }]}>
-          <Text style={[styles.syncButtonText, { color: colors.foreground }]}>Link code</Text>
-        </Pressable>
-      </View>
-      {myCode ? <Text style={[styles.syncCode, { color: colors.foreground }]}>{myCode}</Text> : null}
-      <View style={styles.syncRow}>
-        <TextInput
-          testID="native-code-input" value={code} onChangeText={(t) => setCode(t.toUpperCase())}
-          maxLength={6} autoCapitalize="characters" placeholder="ENTER CODE" placeholderTextColor={colors.mutedForeground}
-          style={[styles.syncInput, { borderColor: colors.border, color: colors.foreground }]}
-        />
-        <Pressable testID="native-link" disabled={busy || code.length !== 6}
-          onPress={run(async () => { await linkWithCode(code); setCode(''); return 'Linked with web.'; })}
-          style={[styles.syncButton, { backgroundColor: colors.primary, opacity: code.length === 6 ? 1 : 0.5 }]}>
-          <Text style={[styles.syncButtonText, { color: colors.primaryForeground }]}>Link</Text>
-        </Pressable>
-      </View>
-      {message ? <Text style={[styles.settingDetail, { color: colors.mutedForeground }]}>{message}</Text> : null}
     </View>
   );
 }
@@ -199,35 +143,30 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { paddingHorizontal: 20 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 26 },
-  iconButton: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
+  iconButton: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
   title: { fontSize: 23, letterSpacing: -0.7, fontFamily: 'Inter_600SemiBold' },
-  profileCard: { minHeight: 100, borderRadius: 21, padding: 17, flexDirection: 'row', alignItems: 'center', marginBottom: 28 },
+  profileCard: { minHeight: 100, borderRadius: 14, padding: 17, flexDirection: 'row', alignItems: 'center', marginBottom: 28 },
   profileMark: { width: 43, height: 43, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
   profileCopy: { flex: 1, marginLeft: 12 },
   profileTitle: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
   profileBody: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 4 },
   sectionLabel: { fontSize: 10, letterSpacing: 1.4, fontFamily: 'Inter_600SemiBold', marginBottom: 10, marginTop: 2 },
-  settingGroup: { borderWidth: 1, borderRadius: 18, overflow: 'hidden', marginBottom: 27 },
+  settingGroup: { borderWidth: 1, borderRadius: 14, overflow: 'hidden', marginBottom: 27 },
   settingRow: { minHeight: 77, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13, paddingVertical: 12 },
   settingIcon: { width: 37, height: 37, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   settingCopy: { flex: 1, marginLeft: 11, paddingRight: 3 },
   settingTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   settingDetail: { fontSize: 10, lineHeight: 15, fontFamily: 'Inter_400Regular', marginTop: 4 },
   divider: { height: 1, marginLeft: 61 },
-  progressCard: { minHeight: 78, borderWidth: 1, borderRadius: 18, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  progressCard: { minHeight: 78, borderWidth: 1, borderRadius: 14, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   progressIcon: { width: 37, height: 37, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   progressCopy: { flex: 1, marginLeft: 11 },
   progressTitle: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   progressBody: { fontSize: 10, fontFamily: 'Inter_400Regular', marginTop: 4 },
   pendingCard: { minHeight: 54, borderWidth: 1, borderRadius: 15, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 23 },
   pendingText: { flex: 1, fontSize: 11, fontFamily: 'Inter_500Medium' },
-  aboutCard: { borderWidth: 1, borderRadius: 18, padding: 16 },
+  aboutCard: { borderWidth: 1, borderRadius: 14, padding: 16 },
   aboutTitle: { fontSize: 17, fontFamily: 'Inter_600SemiBold' },
   aboutBody: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 5 },
   version: { fontSize: 10, fontFamily: 'Inter_400Regular', marginTop: 18 },
-  syncRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  syncButton: { flex: 1, minHeight: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  syncButtonText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
-  syncInput: { flex: 2, minHeight: 42, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, letterSpacing: 4, fontFamily: 'Inter_600SemiBold' },
-  syncCode: { fontSize: 26, letterSpacing: 8, fontFamily: 'Inter_700Bold', marginTop: 12 },
 });

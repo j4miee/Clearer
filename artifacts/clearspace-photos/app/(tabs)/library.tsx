@@ -17,13 +17,23 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
-import { usePhotoLibrary } from '@/context/PhotoLibraryContext';
+import { usePhotoLibrary, type ReviewStateSnapshot } from '@/context/PhotoLibraryContext';
+import { BrandBackdrop } from '@/components/BrandBackdrop';
 import * as PhotoLibrary from '@/lib/photo-library';
 import type { PhotoMetadata, PhotoPermission } from '@/lib/photo-library.types';
 
 type RankedPhoto = PhotoMetadata;
 type SimilarGroup = { id: string; photos: RankedPhoto[] };
-type SwipeDecision = 'keep' | 'remove';
+type SwipeDecision = 'keep' | 'remove' | 'favorite';
+type SwipeHistory = {
+  decision: SwipeDecision;
+  photoId: string;
+  photoIds: string[];
+  previousGroupIndex: number;
+  previousCardIndex: number;
+  wasFavorite: boolean;
+  reviewState: ReviewStateSnapshot;
+};
 
 const PAGE_SIZE = 240;
 const BURST_WINDOW_MS = 90_000;
@@ -150,8 +160,17 @@ export default function LibraryScreen() {
     ready,
     pendingRemovalIds,
     keptIds,
+    xp,
+    streakDays,
+    bestStreak,
+    lastActivityDate,
+    dailyHistory,
     markForRemoval,
+    markSetForRemoval,
+    restoreFromBin,
     keepPhoto,
+    favoritePhoto,
+    restoreReviewState,
     recordDeleted,
     setScanSummary,
   } = usePhotoLibrary();
@@ -168,6 +187,9 @@ export default function LibraryScreen() {
   const [deleteError, setDeleteError] = useState('');
   const [notice, setNotice] = useState('');
   const [busyDeleting, setBusyDeleting] = useState(false);
+  const [busyFavoriting, setBusyFavoriting] = useState(false);
+  const [lastDecision, setLastDecision] = useState<SwipeHistory | null>(null);
+  const [declinedSetId, setDeclinedSetId] = useState<string | null>(null);
   const pan = useRef(new Animated.ValueXY()).current;
   const decisionRef = useRef<(decision: SwipeDecision) => void>(() => undefined);
 
@@ -189,6 +211,8 @@ export default function LibraryScreen() {
   const scanPage = useCallback(
     async (startOver: boolean) => {
       if (Platform.OS === 'web') return;
+      setLastDecision(null);
+      setDeclinedSetId(null);
       const pageOffset = startOver ? 0 : offset;
       const previous = startOver ? [] : photos;
       setIsScanning(true);
@@ -244,8 +268,26 @@ export default function LibraryScreen() {
   const nextPhoto =
     activeGroup?.photos[cardIndex + 1] ?? groups[groupIndex + 1]?.photos[0];
   const completed = hasScanned && !isScanning && !currentPhoto;
-  const advance = (decision: SwipeDecision) => {
-    if (!currentPhoto || !activeGroup) return;
+  const advance = async (decision: SwipeDecision) => {
+    if (!currentPhoto || !activeGroup || busyFavoriting) return;
+    const reviewState: ReviewStateSnapshot = {
+      pendingRemovalIds,
+      keptIds,
+      xp,
+      streakDays,
+      bestStreak,
+      lastActivityDate,
+      dailyHistory,
+    };
+    const history: SwipeHistory = {
+      decision,
+      photoId: currentPhoto.id,
+      photoIds: [currentPhoto.id],
+      previousGroupIndex: groupIndex,
+      previousCardIndex: cardIndex,
+      wasFavorite: currentPhoto.isFavorite,
+      reviewState,
+    };
     if (decision === 'remove') {
       const alreadyKeptInSet = activeGroup.photos.some((photo) =>
         keptIds.includes(photo.id),
@@ -254,19 +296,64 @@ export default function LibraryScreen() {
         .slice(cardIndex + 1)
         .some((photo) => !pendingRemovalIds.includes(photo.id));
       if (!alreadyKeptInSet && !unreviewedAlternative) {
+        if (declinedSetId !== activeGroup.id) {
+          setDeclinedSetId(activeGroup.id);
+          Alert.alert(
+            'Keep one photo from this set',
+            'Clearspace asks you to keep one version from each similar set. If none of these photos is wanted, tap the removal button again to review moving the whole set to your Clearspace Bin.',
+            [{ text: 'Got it' }],
+          );
+          return;
+        }
+        const setIds = activeGroup.photos.map((photo) => photo.id);
         Alert.alert(
-          'Keep one photo from this set',
-          'Clearspace will not mark the final photo in a set for removal. Keep it, or go back to choose another photo.',
-          [{ text: 'Got it' }],
+          'Move the whole set to the Clearspace Bin?',
+          `This stages all ${setIds.length} photos for later review${activeGroup.photos.some((photo) => photo.isFavorite) ? ', including any Photos favourites' : ''}. Nothing is deleted now. You can restore them from the bin before choosing Review delete.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Move to bin',
+              style: 'destructive',
+              onPress: () => {
+                markSetForRemoval(setIds);
+                setLastDecision({ ...history, decision: 'remove', photoIds: setIds });
+                setDeclinedSetId(null);
+                setNotice(`${setIds.length} photos moved to the Clearspace Bin. Nothing has been deleted.`);
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setGroupIndex(groupIndex + 1);
+                setCardIndex(0);
+              },
+            },
+          ],
         );
         return;
       }
       markForRemoval(currentPhoto.id);
       setNotice('Marked for removal. Nothing is deleted until you confirm.');
-    } else {
+    } else if (decision === 'keep') {
       keepPhoto(currentPhoto.id);
       setNotice('Kept in this set.');
+    } else {
+      setBusyFavoriting(true);
+      try {
+        await PhotoLibrary.setPhotoFavorite(currentPhoto.id, !currentPhoto.isFavorite);
+        favoritePhoto(currentPhoto.id);
+        const updated = { ...currentPhoto, isFavorite: !currentPhoto.isFavorite };
+        setPhotos((current) => current.map((photo) => photo.id === updated.id ? updated : photo));
+        setGroups((current) => current.map((group) => ({
+          ...group,
+          photos: group.photos.map((photo) => photo.id === updated.id ? updated : photo),
+        })));
+        setNotice(currentPhoto.isFavorite ? 'Removed from Favourites.' : 'Added to your iPhone Favourites.');
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Could not update this photo’s Favourites status.');
+        setBusyFavoriting(false);
+        return;
+      }
+      setBusyFavoriting(false);
     }
+    setLastDecision(history);
+    setDeclinedSetId(null);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (cardIndex + 1 < activeGroup.photos.length) {
       setCardIndex(cardIndex + 1);
@@ -279,7 +366,9 @@ export default function LibraryScreen() {
 
   const animateDecision = (decision: SwipeDecision) => {
     Animated.timing(pan, {
-      toValue: { x: decision === 'keep' ? 480 : -480, y: 0 },
+      toValue: decision === 'favorite'
+        ? { x: 0, y: -520 }
+        : { x: decision === 'keep' ? 480 : -480, y: 0 },
       duration: 190,
       useNativeDriver: true,
     }).start(({ finished }) => {
@@ -295,7 +384,7 @@ export default function LibraryScreen() {
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (_, gesture) =>
-          Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+          Math.abs(gesture.dx) > 8 || gesture.dy < -8,
         onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], {
           useNativeDriver: false,
         }),
@@ -304,6 +393,8 @@ export default function LibraryScreen() {
             animateDecision('keep');
           } else if (gesture.dx < -105) {
             animateDecision('remove');
+          } else if (gesture.dy < -105) {
+            animateDecision('favorite');
           } else {
             Animated.spring(pan, {
               toValue: { x: 0, y: 0 },
@@ -315,6 +406,36 @@ export default function LibraryScreen() {
       }),
     [pan],
   );
+
+  const undoLastDecision = async () => {
+    if (!lastDecision || busyFavoriting || busyDeleting) return;
+    const previous = lastDecision;
+    if (previous.decision === 'favorite') {
+      try {
+        if (!previous.wasFavorite) await PhotoLibrary.setPhotoFavorite(previous.photoId, false);
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Could not undo the Favourites change.');
+        return;
+      }
+    }
+    restoreReviewState(previous.reviewState);
+    if (previous.decision === 'favorite') {
+      setPhotos((current) => current.map((photo) => photo.id === previous.photoId
+        ? { ...photo, isFavorite: previous.wasFavorite }
+        : photo));
+      setGroups((current) => current.map((group) => ({
+        ...group,
+        photos: group.photos.map((photo) => photo.id === previous.photoId
+          ? { ...photo, isFavorite: previous.wasFavorite }
+          : photo),
+      })));
+    }
+    setGroupIndex(previous.previousGroupIndex);
+    setCardIndex(previous.previousCardIndex);
+    setLastDecision(null);
+    setDeclinedSetId(null);
+    setNotice('Last action undone.');
+  };
 
   const removeMarked = () => {
     if (Platform.OS === 'web' || pendingRemovalIds.length === 0 || busyDeleting) return;
@@ -347,6 +468,7 @@ export default function LibraryScreen() {
             }
 
             const removed = new Set(ids);
+            setLastDecision(null);
             const nextGroups = groups
               .map((group) => ({
                 ...group,
@@ -416,6 +538,7 @@ export default function LibraryScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <BrandBackdrop />
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -494,7 +617,7 @@ export default function LibraryScreen() {
         ) : currentPhoto && activeGroup ? (
           <>
             <Text style={[styles.intro, { color: colors.mutedForeground }]}>
-              Swipe right to keep · left to mark for removal
+              Swipe right to keep · left to mark for removal · up for Favourite
             </Text>
             <View style={styles.groupMeta}>
               <View>
@@ -574,6 +697,20 @@ export default function LibraryScreen() {
 
             <View style={styles.decisionRow}>
               <Pressable
+                testID="undo-swipe"
+                accessibilityLabel="Undo last swipe"
+                accessibilityState={{ disabled: !lastDecision }}
+                disabled={!lastDecision || busyFavoriting || busyDeleting}
+                onPress={() => void undoLastDecision()}
+                style={({ pressed }) => [
+                  styles.decisionButton,
+                  styles.undoDecision,
+                  { borderColor: colors.border, backgroundColor: colors.card, opacity: !lastDecision ? 0.42 : pressed ? 0.72 : 1 },
+                ]}
+              >
+                <Feather name="rotate-ccw" size={18} color={colors.mutedForeground} />
+              </Pressable>
+              <Pressable
                 testID="mark-photo-for-removal"
                 accessibilityLabel="Mark photo for removal"
                 onPress={() => animateDecision('remove')}
@@ -585,9 +722,19 @@ export default function LibraryScreen() {
               >
                 <Feather name="x" size={20} color={colors.primary} />
               </Pressable>
-              <Text style={[styles.decisionHint, { color: colors.mutedForeground }]}>
-                {cardIndex + 1} / {activeGroup.photos.length}
-              </Text>
+              <Pressable
+                testID="favorite-photo"
+                accessibilityLabel={currentPhoto.isFavorite ? 'Remove from Favourites' : 'Add to Favourites'}
+                disabled={busyFavoriting || busyDeleting}
+                onPress={() => animateDecision('favorite')}
+                style={({ pressed }) => [
+                  styles.decisionButton,
+                  styles.favoriteDecision,
+                  { borderColor: colors.border, backgroundColor: colors.card, opacity: busyFavoriting ? 0.55 : pressed ? 0.72 : 1 },
+                ]}
+              >
+                <Feather name="heart" size={19} color={currentPhoto.isFavorite ? colors.primary : colors.accentForeground} />
+              </Pressable>
               <Pressable
                 testID="keep-photo"
                 accessibilityLabel="Keep photo"
@@ -601,6 +748,9 @@ export default function LibraryScreen() {
                 <Feather name="check" size={20} color={colors.card} />
               </Pressable>
             </View>
+            <Text style={[styles.decisionHint, { color: colors.mutedForeground }]}>
+              {cardIndex + 1} / {activeGroup.photos.length} · tap undo to go back
+            </Text>
           </>
         ) : completed ? (
           <EmptyPanel
@@ -664,12 +814,34 @@ export default function LibraryScreen() {
           <View style={[styles.pendingPanel, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.pendingCopy}>
               <Text style={[styles.pendingTitle, { color: colors.foreground }]}>
-                {pendingRemovalIds.length} marked for removal
+                Clearspace Bin · {pendingRemovalIds.length} {pendingRemovalIds.length === 1 ? 'photo' : 'photos'}
               </Text>
               <Text style={[styles.pendingSubcopy, { color: colors.mutedForeground }]}>
-                Not deleted yet. Review and confirm when ready.
+                Safe for now. Restore them or review deletion when you’re ready.
               </Text>
             </View>
+            <Pressable
+              testID="restore-binned-photos"
+              disabled={busyDeleting}
+              onPress={() => {
+                const restoredIds = [...pendingRemovalIds];
+                restoreFromBin(restoredIds);
+                const restored = new Set(restoredIds);
+                setGroups(groupNearbyPhotos(
+                  photos,
+                  pendingRemovalIds.filter((id) => !restored.has(id)),
+                  keptIds,
+                ));
+                setGroupIndex(0);
+                setCardIndex(0);
+                setLastDecision(null);
+                setDeclinedSetId(null);
+                setNotice('Photos restored to review. No files were deleted.');
+              }}
+              style={({ pressed }) => [styles.restoreBinButton, { borderColor: colors.border, opacity: busyDeleting || pressed ? 0.55 : 1 }]}
+            >
+              <Text style={[styles.restoreBinText, { color: colors.foreground }]}>Restore</Text>
+            </Pressable>
             <Pressable
               testID="remove-marked-photos"
               disabled={busyDeleting || Platform.OS === 'web'}
@@ -736,12 +908,12 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { paddingHorizontal: 20 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  backButton: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
+  backButton: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
   headerCopy: { alignItems: 'center' },
   eyebrow: { fontSize: 10, letterSpacing: 1.4, fontFamily: 'Inter_600SemiBold', marginBottom: 4 },
   title: { fontSize: 22, letterSpacing: -0.7, fontFamily: 'Inter_600SemiBold' },
   intro: { fontSize: 12, fontFamily: 'Inter_500Medium', textAlign: 'center', marginTop: 19, marginBottom: 5 },
-  emptyPanel: { borderWidth: 1, borderRadius: 22, alignItems: 'center', paddingHorizontal: 21, paddingVertical: 27, marginTop: 27 },
+  emptyPanel: { borderWidth: 1, borderRadius: 14, alignItems: 'center', paddingHorizontal: 21, paddingVertical: 27, marginTop: 27 },
   emptyIcon: { width: 48, height: 48, borderRadius: 17, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   emptyTitle: { fontSize: 19, lineHeight: 25, textAlign: 'center', letterSpacing: -0.4, fontFamily: 'Inter_600SemiBold' },
   emptyBody: { fontSize: 12, lineHeight: 19, textAlign: 'center', fontFamily: 'Inter_400Regular', marginTop: 8 },
@@ -753,7 +925,7 @@ const styles = StyleSheet.create({
   localTag: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 7, borderRadius: 12 },
   localTagText: { fontSize: 10, fontFamily: 'Inter_700Bold' },
   cardArea: { height: 420, position: 'relative', alignItems: 'center', marginTop: 2, marginBottom: 12 },
-  stackCard: { position: 'absolute', left: 8, right: 8, top: 0, height: 400, overflow: 'hidden', borderRadius: 23, borderWidth: 1 },
+  stackCard: { position: 'absolute', left: 8, right: 8, top: 0, height: 400, overflow: 'hidden', borderRadius: 14, borderWidth: 1 },
   stackCardBack: { transform: [{ scale: 0.93 }, { translateY: 18 }], opacity: 0.6 },
   stackCardMiddle: { transform: [{ scale: 0.965 }, { translateY: 9 }], opacity: 0.82 },
   frontCard: { left: 0, right: 0, top: 0, height: 400, borderWidth: 1 },
@@ -769,11 +941,13 @@ const styles = StyleSheet.create({
   photoName: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
   photoDetails: { fontSize: 11, fontFamily: 'Inter_500Medium', marginTop: 5 },
   recommendationReason: { fontSize: 11, lineHeight: 16, minHeight: 34, textAlign: 'center', fontFamily: 'Inter_400Regular', paddingHorizontal: 8 },
-  decisionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 22, marginTop: 11, marginBottom: 19 },
-  decisionButton: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
+  decisionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 13, marginTop: 11, marginBottom: 8 },
+  decisionButton: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  undoDecision: { borderWidth: 1 },
+  favoriteDecision: { borderWidth: 1 },
   removeDecision: { borderWidth: 1 },
   keepDecision: {},
-  decisionHint: { minWidth: 44, textAlign: 'center', fontSize: 11, fontFamily: 'Inter_600SemiBold' },
+  decisionHint: { textAlign: 'center', fontSize: 11, fontFamily: 'Inter_600SemiBold', marginBottom: 12 },
   manageAccess: { marginTop: 15, borderTopWidth: 1, paddingTop: 13, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 },
   manageAccessText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
   rescanButton: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 12 },
@@ -784,10 +958,12 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 11, lineHeight: 16, fontFamily: 'Inter_500Medium' },
   retryButton: { alignSelf: 'flex-start', marginTop: 8 },
   retryText: { fontSize: 11, fontFamily: 'Inter_700Bold' },
-  pendingPanel: { borderWidth: 1, borderRadius: 17, padding: 13, marginTop: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  pendingPanel: { borderWidth: 1, borderRadius: 17, padding: 13, marginTop: 16, flexDirection: 'row', alignItems: 'center', gap: 8 },
   pendingCopy: { flex: 1 },
   pendingTitle: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
   pendingSubcopy: { fontSize: 10, lineHeight: 14, fontFamily: 'Inter_400Regular', marginTop: 3 },
   removeMarkedButton: { minHeight: 40, borderRadius: 20, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 7 },
   removeMarkedText: { fontSize: 10, fontFamily: 'Inter_700Bold' },
+  restoreBinButton: { minHeight: 40, borderWidth: 1, borderRadius: 20, paddingHorizontal: 11, alignItems: 'center', justifyContent: 'center' },
+  restoreBinText: { fontSize: 10, fontFamily: 'Inter_600SemiBold' },
 });

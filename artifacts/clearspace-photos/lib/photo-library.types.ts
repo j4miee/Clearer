@@ -13,4 +13,5 @@ export type PhotoMetadata = {
   creationTime: number | null;
   isFavorite: boolean;
   fileSize: number | null;
+  isScreenshot?: boolean;
 };
